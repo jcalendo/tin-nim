@@ -10,7 +10,7 @@ type
     tx_id*: string
 
   TxStats = object
-    tin, minCov, maxCov, meanCov, medianCov: float
+    tin, minCov, maxCov, meanCov, medianCov, fractionCovered, totalCov: float
     length: int
 
 
@@ -107,7 +107,16 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
     let logSum = txLogSum.getOrDefault(txId, 0.0)
     let blocks = txCovBlocks.getOrDefault(txId, @[])
     
-    var stat = TxStats(length: L, tin: 0.0, minCov: 0.0, maxCov: 0.0, meanCov: 0.0, medianCov: 0.0)
+    var stat = TxStats(
+      length: L, 
+      tin: 0.0, 
+      minCov: 0.0, 
+      maxCov: 0.0, 
+      meanCov: 0.0, 
+      medianCov: 0.0, 
+      fractionCovered: 0.0, 
+      totalCov: C
+    )
     
     if L > 0:
       stat.meanCov = C / float(L)
@@ -115,6 +124,9 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
       var fullBlocks = blocks
       var covered = 0
       for b in blocks: covered += b.w
+      
+      stat.fractionCovered = float(covered) / float(L)
+      
       if covered < L:
         fullBlocks.add((0.0, L - covered))
         
@@ -148,9 +160,15 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
   return results
 
 
-proc main(bed: string, gtf: string, output: string = "", minCov: float = 1.0) =
+proc main(bed: string, gtf: string, output: string = "", minCov: float = 1500) =
+  
+  echo "Parsing GTF and building interval index..."
   var (trees, txLengths) = buildGtfIndex(gtf)
+  
+  echo "Parsing per-base BED file for coverage..."
   let (txTotalCov, txLogSum, txCovBlocks) = parseBedCoverage(bed, trees)
+
+  echo "Computing TIN scores and transcript stats..."
   let stats = computeTinScores(txLengths, txTotalCov, txLogSum, txCovBlocks, minCov)
 
   var outStream: File
@@ -158,12 +176,14 @@ proc main(bed: string, gtf: string, output: string = "", minCov: float = 1.0) =
     if not open(outStream, output, fmWrite):
       quit("Error: Could not open output file " & output & " for writing.")
   else:
-    outStream = stdout 
+    outStream = stdout
 
-  outStream.writeLine("transcript_id\tlength\tmin_cov\tmax_cov\tmean_cov\tmedian_cov\tTIN")
+  outStream.writeLine("transcript_id\tsum_exon_lengths\tfraction_covered\ttotal_cov\tmin_cov\tmax_cov\tmean_cov\tmedian_cov\tTIN")
   for txId, s in stats:
     outStream.writeLine(txId, "\t", 
-                        s.length, "\t", 
+                        s.length, "\t",
+                        formatFloat(s.fractionCovered, ffDecimal, 2), "\t",
+                        formatFloat(s.totalCov, ffDecimal, 2), "\t",
                         formatFloat(s.minCov, ffDecimal, 2), "\t",
                         formatFloat(s.maxCov, ffDecimal, 2), "\t",
                         formatFloat(s.meanCov, ffDecimal, 2), "\t",
@@ -179,5 +199,5 @@ when isMainModule:
     "bed": "Path to the mosdepth per-base bed.gz file",
     "gtf": "Path to the input GTF annotations file",
     "output": "Optional path to save the TSV output. Defaults to stdout.",
-    "minCov": "Minimum total accumulated depth across the transcript to calculate TIN (default: 1.0)"
+    "minCov": "Minimum total accumulated depth across the transcript to calculate TIN"
   }
