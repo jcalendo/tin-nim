@@ -11,8 +11,8 @@ type
 
   TxStats = object
     tin, minCov, maxCov, meanCov, medianCov, fractionCovered, totalCov: float
-    length: int
-
+    sum_exon_lengths: int
+    qcFailed: bool
 
 proc start*(iv: ExonIv): int {.inline.} = iv.startPos
 proc stop*(iv: ExonIv): int {.inline.} = iv.stopPos
@@ -91,7 +91,6 @@ proc parseBedCoverage(bedFile: string, trees: var Table[string, Lapper[ExonIv]])
         txTotalCov[txId] = txTotalCov.getOrDefault(txId, 0.0) + (width * cov)
         txLogSum[txId] = txLogSum.getOrDefault(txId, 0.0) + (width * cov * ln(cov))
         
-        # store the RLE block 
         if not txCovBlocks.hasKey(txId): txCovBlocks[txId] = @[]
         txCovBlocks[txId].add((cov, int(width)))
 
@@ -107,16 +106,7 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
     let logSum = txLogSum.getOrDefault(txId, 0.0)
     let blocks = txCovBlocks.getOrDefault(txId, @[])
     
-    var stat = TxStats(
-      length: L, 
-      tin: 0.0, 
-      minCov: 0.0, 
-      maxCov: 0.0, 
-      meanCov: 0.0, 
-      medianCov: 0.0, 
-      fractionCovered: 0.0, 
-      totalCov: C
-    )
+    var stat = TxStats(sum_exon_lengths: L, tin: 0.0, minCov: 0.0, maxCov: 0.0, meanCov: 0.0, medianCov: 0.0, fractionCovered: 0.0, totalCov: C, qcFailed: false)
     
     if L > 0:
       stat.meanCov = C / float(L)
@@ -124,7 +114,6 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
       var fullBlocks = blocks
       var covered = 0
       for b in blocks: covered += b.w
-      
       stat.fractionCovered = float(covered) / float(L)
       
       if covered < L:
@@ -136,7 +125,6 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
         stat.minCov = fullBlocks[0].c
         stat.maxCov = fullBlocks[^1].c
         
-        # Find the median by walking the sorted widths
         let mid1 = (L - 1) div 2
         let mid2 = L div 2
         var current = 0
@@ -150,18 +138,24 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
           
         stat.medianCov = (med1 + med2) / 2.0
 
-      if C >= minCov:
+      # Calculate TIN
+      if C > 0.0:
         var entropy = ln(C) - (logSum / C)
         if entropy < 0.0: entropy = 0.0 
         stat.tin = 100.0 * exp(entropy) / float(L)
+
+      # QC filters
+      if C < minCov: 
+        stat.qcFailed = true
+      elif stat.minCov == stat.maxCov and stat.meanCov > 0.0:
+        stat.qcFailed = true
 
     results[txId] = stat
     
   return results
 
 
-proc main(bed: string, gtf: string, output: string = "", minCov: float = 1500) =
-  
+proc main(bed: string, gtf: string, minCov: float = 1500.0, output: string = "") =
   echo "Parsing GTF and building interval index..."
   var (trees, txLengths) = buildGtfIndex(gtf)
   
@@ -176,18 +170,21 @@ proc main(bed: string, gtf: string, output: string = "", minCov: float = 1500) =
     if not open(outStream, output, fmWrite):
       quit("Error: Could not open output file " & output & " for writing.")
   else:
-    outStream = stdout
+    outStream = stdout 
 
-  outStream.writeLine("transcript_id\tsum_exon_lengths\tfraction_covered\ttotal_cov\tmin_cov\tmax_cov\tmean_cov\tmedian_cov\tTIN")
+  outStream.writeLine("transcript_id\tsum_exon_lengths\tfraction_covered\ttotal_cov\tmin_cov\tmax_cov\tmean_cov\tmedian_cov\tqc_failed\tTIN")
   for txId, s in stats:
+    let qcStr = if s.qcFailed: "True" else: "False"
+    
     outStream.writeLine(txId, "\t", 
-                        s.length, "\t",
-                        formatFloat(s.fractionCovered, ffDecimal, 2), "\t",
+                        s.sum_exon_lengths, "\t", 
+                        formatFloat(s.fractionCovered, ffDecimal, 4), "\t",
                         formatFloat(s.totalCov, ffDecimal, 2), "\t",
                         formatFloat(s.minCov, ffDecimal, 2), "\t",
                         formatFloat(s.maxCov, ffDecimal, 2), "\t",
                         formatFloat(s.meanCov, ffDecimal, 2), "\t",
                         formatFloat(s.medianCov, ffDecimal, 2), "\t",
+                        qcStr, "\t",
                         formatFloat(s.tin, ffDecimal, 2))
 
   if output.len > 0:
@@ -198,6 +195,6 @@ when isMainModule:
   dispatch main, help = {
     "bed": "Path to the mosdepth per-base bed.gz file",
     "gtf": "Path to the input GTF annotations file",
-    "output": "Optional path to save the TSV output. Defaults to stdout.",
-    "minCov": "Minimum total accumulated depth across the transcript to calculate TIN"
+    "minCov": "Minimum total accumulated depth across the transcript to pass QC (default: 1500.0, approximating 10 reads of 150bp)",
+    "output": "Optional path to save the TSV output. Defaults to stdout."
   }
