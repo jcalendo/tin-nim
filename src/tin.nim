@@ -30,8 +30,16 @@ proc buildGtfIndex(gtfFile: string): tuple[trees: Table[string, Lapper[ExonIv]],
   var 
     exonDict = initTable[string, seq[ExonIv]]()
     txLengths = initTable[string, int]()
+    f: HTSFile
 
-  for line in lines(gtfFile):
+  try:
+    discard f.open(gtfFile, "r")
+  except Exception:
+    quit("Error: Could not open BED file " & gtfFile)
+
+  var line = newStringOfCap(2048)
+
+  while f.readLine(line):
     if line.startsWith("#"): continue
     let cols = line.split('\t')
     if cols.len < 9 or cols[2] != "exon": continue
@@ -48,6 +56,8 @@ proc buildGtfIndex(gtfFile: string): tuple[trees: Table[string, Lapper[ExonIv]],
       if not exonDict.hasKey(chrom):
         exonDict[chrom] = @[]
       exonDict[chrom].add(ExonIv(startPos: start, stopPos: stop, tx_id: txId))
+  
+  f.close()
 
   var trees = initTable[string, Lapper[ExonIv]]()
   for chrom, exons in exonDict.mpairs:
