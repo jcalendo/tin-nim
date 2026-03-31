@@ -8,15 +8,21 @@
 
 ```
 Usage:
-  main [REQUIRED,optional-params] 
+  main [REQUIRED,optional-params]
 Options:
-  -h, --help                        print this cligen-erated help
-  --help-syntax                     advanced: prepend,plurals,..
-  -b=, --bed=     string  REQUIRED  Path to the mosdepth per-base bed.gz file
-  -g=, --gtf=     string  REQUIRED  Path to the input GTF annotations file
-  -m=, --minCov=  float   1500.0    Minimum total accumulated depth across the transcript to pass QC (default: 1500.0,
-                                    approximating 10 reads of 150bp)
-  -o=, --output=  string  ""        Optional path to save the TSV output. Defaults to stdout.
+  -h, --help                              print this cligen-erated help
+  --help-syntax                           advanced: prepend,plurals,..
+  -b=, --bed=           string  REQUIRED  Path to the mosdepth per-base bed.gz file
+  -g=, --gtf=           string  REQUIRED  Path to the input GTF annotations file
+  -m=, --minCov=        float   1500.0    Minimum total accumulated depth across the transcript to pass
+                                          QC (default: 1500.0, approximating 10 reads of 150bp)
+  -d=, --dynamicRange=  float   1.0       Log2 ratio between max_cov and min_cov across the transcript
+                                          to pass QC (default: 1.0, must be greater than this value to
+                                          pass QC)
+  --minLength=          int     200       Minimum total length of exons in a given transcript to pass
+                                          QC (default: 200, transcripts shorter than this value fail
+                                          QC)
+  -o=, --output=        string  ""        Optional path to save the TSV output. Defaults to stdout.
 ```
 
 ### Example
