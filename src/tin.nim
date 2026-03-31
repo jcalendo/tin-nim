@@ -98,7 +98,7 @@ proc parseBedCoverage(bedFile: string, trees: var Table[string, Lapper[ExonIv]])
   return (txTotalCov, txLogSum, txCovBlocks)
 
 
-proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, float], txLogSum: Table[string, float], txCovBlocks: Table[string, seq[tuple[c: float, w: int]]], minCov: float): Table[string, TxStats] =
+proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, float], txLogSum: Table[string, float], txCovBlocks: Table[string, seq[tuple[c: float, w: int]]], minCov, dynamicRange: float, minLength: int): Table[string, TxStats] =
   var results = initTable[string, TxStats]()
   
   for txId, L in txLengths:
@@ -147,7 +147,9 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
       # QC filters
       if C < minCov: 
         stat.qcFailed = true
-      elif stat.minCov == stat.maxCov and stat.meanCov > 0.0:
+      elif (log2(stat.maxCov + 1.0) - log2(stat.minCov + 1.0)) <= dynamicRange:
+        stat.qcFailed = true
+      elif stat.sum_exon_lengths <= minLength:
         stat.qcFailed = true
 
     results[txId] = stat
@@ -155,15 +157,10 @@ proc computeTinScores(txLengths: Table[string, int], txTotalCov: Table[string, f
   return results
 
 
-proc main(bed: string, gtf: string, minCov: float = 1500.0, output: string = "") =
-  echo "Parsing GTF and building interval index..."
+proc main(bed: string, gtf: string, minCov: float = 1500.0, dynamicRange: float = 1.0, minLength: int = 200, output: string = "") =
   var (trees, txLengths) = buildGtfIndex(gtf)
-  
-  echo "Parsing per-base BED file for coverage..."
   let (txTotalCov, txLogSum, txCovBlocks) = parseBedCoverage(bed, trees)
-
-  echo "Computing TIN scores and transcript stats..."
-  let stats = computeTinScores(txLengths, txTotalCov, txLogSum, txCovBlocks, minCov)
+  let stats = computeTinScores(txLengths, txTotalCov, txLogSum, txCovBlocks, minCov, dynamicRange, minLength)
 
   var outStream: File
   if output.len > 0:
@@ -196,5 +193,7 @@ when isMainModule:
     "bed": "Path to the mosdepth per-base bed.gz file",
     "gtf": "Path to the input GTF annotations file",
     "minCov": "Minimum total accumulated depth across the transcript to pass QC (default: 1500.0, approximating 10 reads of 150bp)",
+    "dynamicRange": "Log2 ratio between max_cov and min_cov across the transcript to pass QC (default: 1.0, must be greater than this value to pass QC)",
+    "minLength": "Minimum total length of exons in a given transcript to pass QC (default: 200, transcripts shorter than this value fail QC)",
     "output": "Optional path to save the TSV output. Defaults to stdout."
   }
