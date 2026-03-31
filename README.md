@@ -28,7 +28,7 @@ Options:
 ### Example
 
 ```{bash}
-tin -b sample.per-base.bed.gz -g gencode.v48.basic.annotation.gtf -o tin.tsv
+tin -b sample.per-base.bed.gz -g gencode.v48.basic.annotation.gtf.gz -o tin.tsv
 ```
 
 ### Installation
